@@ -1,31 +1,39 @@
-import tkinter as tk
-from tkinter import ttk
-from tkinter import filedialog
 import subprocess
+import importlib.util
+import json
 import sys
 import os
 import csv
-import importlib
+import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog
 import re
 from num2words import num2words
-from weasyprint import HTML
-import json
 
+def install(package_name, module_name=None):
+    try:
+        if module_name:
+            package_spec = importlib.util.find_spec(package_name)
+            if package_spec and module_name in dir(importlib.import_module(package_name)):
+                pass
+            else:
+                raise ImportError
+        else:
+            importlib.import_module(package_name)
+    except (ImportError, ModuleNotFoundError):
+        subprocess.check_call(["pip", "install", package_name])
+
+def import_modules():
+    modules_needed = ["num2words", "weasyprint"]
+    for module in modules_needed:
+        install(module)
 
 def get_data_file_path(file_name): #creating a presistence file in home directory
     user_home = os.path.expanduser("~")
-    app_data_dir = os.path.join(user_home, ".markfoilPersistence")
+    app_data_dir = os.path.join(user_home, ".mPersistence")
     os.makedirs(app_data_dir, exist_ok=True)
     data_file_path = os.path.join(app_data_dir, file_name)
     return data_file_path
-
-def install(module): #installing modules if any needed
-    try:
-        importlib.import_module(module)
-    except ImportError:
-        print("Installing {module}...")
-        subprocess.check_call(["pip", "install", module])
-        print("{module} installed successfully.")
 
 def save_data(data):
     file_path = get_data_file_path("datafrompy.json")
@@ -66,12 +74,14 @@ def process_rows(text, pass_marks, number_of_rows):
         second_part = parts[1] if len(parts) > 1 else ""
         full = pass_marks * 2
         if second_part.isdigit() and float(second_part) > float(full):
-            error_label.config(text=f"Code {first_number} got {second_part}, which exceeds full mark!")
+            show_toast(f"Code {first_number} got {second_part}, which exceeds full mark!")
+            # error_label.config(text=f"Code {first_number} got {second_part}, which exceeds full mark!")
             return None
 
         if first_number in numbers_set:
             duplicates_found = True
-            error_label.config(text="Duplicate code number: "+str(first_number))
+            show_toast(f"Duplicate code number: {str(first_number)}")
+            # error_label.config(text="Duplicate code number: "+str(first_number))
         else:
             numbers_set.add(first_number)
 
@@ -118,31 +128,25 @@ def process_rows(text, pass_marks, number_of_rows):
 
 def generate_pdf(combined_html_content, pdf_file, switch):
     global pdf_created
+    from weasyprint import HTML
     if switch == 1:
         with open(pdf_file, 'wb') as f:
-            HTML(string=combined_html_content).write_pdf(f) # Create a PDF file from the XHTML content
-        print(f"PDF saved as: {pdf_file}")
+            HTML(string=combined_html_content).write_pdf(f)
         pdf_created = pdf_created + 1
         if pdf_created != 0 :
-            result_label = ttk.Label(app, text="Success creating PDF file named: " + str(pdf_file))
-            result_label.grid(row=15, column=0, columnspan=2)
+            show_toast(f"Success creating PDF file named: {str(pdf_file)}")
         else:
-            result_label = ttk.Label(app, text="PDF creation failed!")
-            result_label.grid(row=15, column=0, columnspan=2)
-    else: #For development/ debugging only
+            show_toast(f"PDF creation failed")
+    else: # For development/ debugging only
         try:
-            print("SHIFT modifier used")
             with open("python_output.html", "w") as file:
                 file.write(combined_html_content)
             with open(pdf_file, 'xb') as f:
                 HTML(string=combined_html_content).write_pdf(f)
             print(f"PDF saved as: {pdf_file}")
             pdf_created += 1
-            result_label = ttk.Label(app, text="Success creating PDF file named: " + str(pdf_file))
-            result_label.grid(row=14, column=0, columnspan=2)
+            show_toast(f"Success creating PDF file named: {str(pdf_file)}")
         except FileExistsError:
-            # File already exists, delete it and try creating the PDF file again
-            print("File being overwritten")
             os.remove(pdf_file)
             generate_pdf(combined_html_content, pdf_file, switch)
 
@@ -171,8 +175,15 @@ def splice_pages(row_list, pass_marks, number_of_rows):
     chopped_row_list = row_list[number_of_rows:]     # Remove the extracted items from the original list
     return content, chopped_row_list, pass_counts, fail_counts
 
-def submit_data(switch):
-    # Get the data from tkinter input fields
+def show_toast(message):
+    toast = tk.Toplevel()
+    toast.overrideredirect(True)  # Remove window decorations
+    label = tk.Label(toast, text=message, bg='lightyellow', fg='red', padx=10, pady=5)
+    label.pack()
+    toast.lift()
+    toast.after(2000, toast.destroy)
+
+def submit_data(switch): # get data, save it to file, create html
     data = {
         "date": date_entry.get(),
         "level": level_entry.get(),
@@ -187,10 +198,7 @@ def submit_data(switch):
         "campus": campus.get(),
         "text_data": text_entry.get("1.0", tk.END).strip(),
     }
-
-    # Save the data to a JSON file
     save_data(data)
-
     if exam_type_var.get() == "Theory":
         thpr = "Th."
     elif exam_type_var.get() == "Practical":
@@ -198,8 +206,7 @@ def submit_data(switch):
     try:
         pass_marks = "{:g}".format(int(data["full_marks"]) / 2)
     except (KeyError, ValueError):
-        result_label = ttk.Label(app, text="Enter a number in pass marks!")
-        result_label.grid(row=14, column=0, columnspan=2)
+        show_toast("Enter a valid number in full marks!")
     number_of_rows=int(num_of_rows.get())
     global num2words
     combined_html_content = ""
@@ -216,7 +223,7 @@ def submit_data(switch):
         <style>
             @page {{
                 size: A4;
-                margin: 0.5cm 0.5cm 0.5cm 0.5cm;
+                margin: 0.2cm 0.5cm 0.2cm 0.5cm;
             }}
             body {{
                 font-family: Arial, sans-serif;
@@ -228,6 +235,9 @@ def submit_data(switch):
             .wholepage {{
                 width:100%;
             }}
+            .wholepage .mini {{
+                font-size:12px;
+            }}
             .wholepage tr td table tr * {{
                 padding: 2px 0px -2px 0px;
                 border: 1px solid;
@@ -238,9 +248,11 @@ def submit_data(switch):
             .wholepage .mark-tables td table tr .wordnumcolumn{{
                 text-align: left;
                 padding-left: 2px;
+                width: 3.5cm;
             }}
             .wholepage .mark-tables td table tr .mocolumn{{
                 padding-left: 2px;
+                width: 1cm;
             }}
             .white {{
                 color: white;
@@ -263,7 +275,8 @@ def submit_data(switch):
             }}
             .mark-tables .mt1 {{
                 padding-right: 5px;
-                width: 5.5cm;
+                padding-left: 0.5cm;
+                width: 5cm;
             }}
             .mark-tables .mt2, .mark-tables .mt3 {{
                 padding-left: 5px;
@@ -272,19 +285,19 @@ def submit_data(switch):
                 border: 1px solid black;
                 border-collapse: collapse;
             }}
-            .codecolumn {{
+            .mark-table1 .codecolumn {{
                 width: 2cm;
             }}
-            .mark-table1 .mocolumn {{
-                width: 2.5cm;
+            .mark-table2 .mocolumn, .mark-table3 .mocolumn {{
+                padding: 2px;
                 text-align: center;
             }}
-            .mark-table2 .mocolumn, .mark-table3 .mocolumn {{
-                width: 1.5cm;
-                text-align: center;
+            .mark-table2 .codecolumn, .mark-table3 .codecolumn {{
+                padding-left: 5px;
+                padding-right: 5px;
             }}
             .rows {{
-                height:{18/number_of_rows}cm;
+                height:{19/number_of_rows}cm;
             }}
         </style>
         </head>
@@ -334,7 +347,7 @@ def submit_data(switch):
                     <div class="center bold times">Institute of Medicine</div>
                 </td>
             </tr>
-            <tr>
+            <tr class="mini">
                 <td class="col1">
                     <div class="underline bold times">Counterfoil Examination</div>
                 </td>
@@ -345,7 +358,7 @@ def submit_data(switch):
                     <div class="underline bold italics times">To be treated as strictly confidential</div>
                 </td>
             </tr>
-            <tr>
+            <tr class="mini">
                 <td class="col1">
                     <div>&nbsp;&nbsp;Examination held {data["date"]}</div>
                 </td>
@@ -356,7 +369,7 @@ def submit_data(switch):
                     <div>&nbsp;&nbsp;Examination held {data["date"]}</div>
                 </td>
             </tr>
-            <tr>
+            <tr class="mini">
                 <td class="col1">
                     <div>&nbsp;&nbsp;Level: {data["level"]}</div>
                 </td>
@@ -367,7 +380,7 @@ def submit_data(switch):
                     <div>&nbsp;&nbsp;Please follow directions strictly</div>
                 </td>
             </tr>
-            <tr>
+            <tr class="mini">
                 <td class="col1">
                     <div>&nbsp;&nbsp;Program: {data["program"]}&nbsp;&nbsp;Year: {data["year"]}  </div>
                 </td>
@@ -378,7 +391,7 @@ def submit_data(switch):
                     <div>&nbsp;&nbsp;Level: {data["level"]}&nbsp;&nbsp;Program: {data["program"]}</div>
                 </td>
             </tr>
-            <tr>
+            <tr class="mini">
                 <td class="col1">
                     <div>&nbsp;&nbsp;Subject: {data["subject"]}</div>
                 </td>
@@ -389,7 +402,7 @@ def submit_data(switch):
                     <div>&nbsp;&nbsp;Year: {data["year"]}  Subject: {data["subject"]}</div>
                 </td>
             </tr>
-            <tr>
+            <tr class="mini">
                 <td class="col1">
                     <div>&nbsp;&nbsp;Paper: {data["paper"]}&nbsp;&nbsp;&nbsp;&nbsp;<span class="bold">{thpr}</span></div>
                 </td>
@@ -400,7 +413,7 @@ def submit_data(switch):
                     <div>&nbsp;&nbsp;Paper: {data["paper"]}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="bold">{thpr}</span></div>
                 </td>
             </tr>
-            <tr>
+            <tr class="mini">
                 <td class="col1">
                     <div>&nbsp;&nbsp;Full Marks: {data["full_marks"]}&nbsp;&nbsp;Pass Marks: {pass_marks}</div>
                 </td>
@@ -442,7 +455,7 @@ def submit_data(switch):
                     </table>
                 </td>
             </tr>
-            <tr class="after-marks">
+            <tr class="after-marks mini">
                 <td class="col1">
                     <div class="times">Passed: <span class="underline">{pass_counts}</span>&nbsp;&nbsp;Failed: <span class="underline">{fail_counts}</span></div>
                     <div style="height:0.3cm;"></div>
@@ -517,8 +530,7 @@ def submit_data(switch):
     # Generate the PDF with the provided filename and folder
     generate_pdf(combined_html_content, pdf_file, switch)
 
-def on_closing():
-    # Get the data from the text entry and other fields
+def on_closing(): # save entered data to persistence file on app close
     data = {
         "date": date_entry.get(),
         "level": level_entry.get(),
@@ -533,22 +545,17 @@ def on_closing():
         "campus": campus.get(),
         "text_data": text_entry.get("1.0", tk.END).strip(),
     }
-
-    # Save the data to a JSON file
     save_data(data)
-
-    # Close the tkinter window
     app.destroy()
 
-
-if __name__ == "__main__":
+if __name__ == "__main__": # app gui and relevant logic
+    import_modules()
     pdf_created = 0
     default_rows = 30
     rownum = 0
-    
     app = tk.Tk()
     app.title("Markfoil generator")
-
+    style = ttk.Style()
     date_label = ttk.Label(app, text="Date:")
     date_label.grid(row=rownum, column=0)
     date_entry = ttk.Entry(app)
@@ -687,15 +694,16 @@ if __name__ == "__main__":
     current_number = 1
 
     rownum += 1
-    
-    # Create a label to display error messages
-    error_label = ttk.Label(app, foreground="red")
-    error_label.grid(row=rownum, column=0, columnspan=2)
 
     # Function to handle the "Enter" key press
     def on_enter(event):
+        try:
+            pass_marks = "{:g}".format(int(data["full_marks"]) / 2)
+        except (KeyError, ValueError):
+            result_label = ttk.Label(app, text="Enter a number in pass marks!")
+            result_label.grid(row=14, column=0, columnspan=2)
         global current_number
-        error_label.config(text="")  # Clear previous error message
+        # error_label.config(text="")  # Clear previous error message
         marks = event.widget.get("insert linestart", "insert lineend")
         
         if marks.strip():
@@ -704,7 +712,8 @@ if __name__ == "__main__":
             
             # Checking if there are exactly 2 parts (number and mark)
             if len(parts) != 2:
-                error_label.config(text="Type code number <SPACE or TAB> and marks or description.")
+                show_toast("Type code number <SPACE or TAB> \nand marks or description.")
+                # error_label.config(text="Type code number <SPACE or TAB> and marks or description.")
                 return "break"
             
             try:
@@ -716,7 +725,8 @@ if __name__ == "__main__":
                     entered_mark = float(entered_mark_str)  # Extract mark from tab-separated input
                     if entered_mark > float(full_marks_entry.get()):
                         # Display a message or take appropriate action
-                        error_label.config(text="Entered mark exceeds full marks")
+                        show_toast("Entered mark exceeds full marks")
+                        # error_label.config(text="Entered mark exceeds full marks")
                         return "break"  # Prevent default newline behavior
             except ValueError:
                 # Code to handle the case where the mark couldn't be extracted or converted
